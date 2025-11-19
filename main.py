@@ -167,12 +167,13 @@ def run_bot():
             print("Rate limited by Twitter. Cooling down for 15 minutes…")
             time.sleep(900)
 
-        except Exception as e:
-            print("Unexpected error:", e)
-            time.sleep(60)
+           except Exception as e:
+        print("Unexpected error:", e)
+        time.sleep(60)
 
 
 # ----- ENTRY POINT -----
 
 if __name__ == "__main__":
+    print("MakeItAHighlight bot is now running...")
     run_bot()
