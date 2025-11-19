@@ -5,11 +5,12 @@ import ffmpeg
 import tweepy
 import requests
 
-API_KEY = os.getenv("trr8P5NeVuboG5CjDENrGwVwj")
-API_KEY_SECRET = os.getenv("1Z2b9fxeODdF6Xms4r69KLhfsGHq0yXoimMq1DwQbkXvSZRN2D")
-ACCESS_TOKEN = os.getenv("1990911553718345728-e7hc3e50PM6f4XpvVRSTsOsKKHBoMj")
-ACCESS_TOKEN_SECRET = os.getenv("od2fsrk99ksDQBCTVV1srehxIwS8jyZgFDOutilMO7IAL")
+API_KEY = os.getenv("API_KEY")
+API_KEY_SECRET = os.getenv("API_KEY_SECRET")
+ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
+ACCESS_TOKEN_SECRET = os.getenv("ACCESS_TOKEN_SECRET")
 BEARER_TOKEN = os.getenv("BEARER_TOKEN")
+
 
 
 client = tweepy.Client(
