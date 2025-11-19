@@ -4,10 +4,11 @@ import re
 import ffmpeg
 import tweepy
 import requests
-from tweepy.errors import TooManyRequests  # needed for rate limit handling
+from tweepy.errors import TooManyRequests  # for rate limit handling
 
 
-# Load keys from Render environment variables
+# ----- CONFIG: read keys from environment variables -----
+
 API_KEY = os.getenv("API_KEY")
 API_KEY_SECRET = os.getenv("API_KEY_SECRET")
 ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
@@ -20,7 +21,7 @@ client = tweepy.Client(
     consumer_key=API_KEY,
     consumer_secret=API_KEY_SECRET,
     access_token=ACCESS_TOKEN,
-    access_token_secret=ACCESS_TOKEN_SECRET
+    access_token_secret=ACCESS_TOKEN_SECRET,
 )
 
 # Tweepy v1.1 API (for posting tweets with video)
@@ -29,6 +30,8 @@ api = tweepy.API(auth)
 
 LAST_SEEN_FILE = "last_seen.txt"
 
+
+# ----- HELPER FUNCTIONS -----
 
 def get_last_seen():
     if not os.path.exists(LAST_SEEN_FILE):
@@ -43,6 +46,10 @@ def set_last_seen(tweet_id):
 
 
 def parse_cut_command(text):
+    """
+    Looks for: cut 0:05-0:17
+    Returns ("0:05", "0:17") or (None, None)
+    """
     pattern = r"cut\s+(\d+:\d+)-(\d+:\d+)"
     match = re.search(pattern, text.lower())
     if match:
@@ -70,6 +77,8 @@ def trim_video(input_file, start, end):
     return output_file
 
 
+# ----- MAIN BOT LOOP -----
+
 def run_bot():
     print("MakeItAHighlight bot is now running...")
     last_seen = get_last_seen()
@@ -77,9 +86,11 @@ def run_bot():
     # Get your own user ID for mentions
     me = client.get_me()
     user_id = me.data.id
+    print(f"Bot user id: {user_id}")
 
     while True:
         try:
+            print("Checking for new mentions...")
             # Get mentions using Tweepy v2
             if last_seen:
                 mentions = client.get_users_mentions(
@@ -95,11 +106,12 @@ def run_bot():
                     media_fields=["url"],
                 )
 
-            # Process mentions
             if mentions.data:
+                print(f"Found {len(mentions.data)} new mention(s).")
                 for mention in reversed(mentions.data):
                     print("Processing:", mention.id)
                     set_last_seen(mention.id)
+                    last_seen = str(mention.id)
 
                     start, end = parse_cut_command(mention.text)
                     if not start:
@@ -133,30 +145,34 @@ def run_bot():
                         )
                         continue
 
-                    # Download → trim → upload
+                    print(f"Downloading video from {media_url}")
                     input_file = download_video(media_url)
+                    print(f"Trimming video {start} to {end}")
                     output_file = trim_video(input_file, start, end)
 
+                    print("Uploading clipped video...")
                     api.update_status_with_media(
                         status=f"Here's your highlight! 🔥 ({start} - {end})",
                         filename=output_file,
                         in_reply_to_status_id=mention.id,
                     )
 
+            else:
+                print("No new mentions.")
+
             # Wait 60 seconds before next check
             time.sleep(60)
 
         except TooManyRequests:
             print("Rate limited by Twitter. Cooling down for 15 minutes…")
-            time.sleep(900)  # sleep 15 mins instead of crashing
+            time.sleep(900)
 
         except Exception as e:
             print("Unexpected error:", e)
             time.sleep(60)
 
 
+# ----- ENTRY POINT -----
+
 if __name__ == "__main__":
-    run_bot()
-if __name__ == "__main__":
-    print("MakeItAHighlight bot is now running...")
     run_bot()
