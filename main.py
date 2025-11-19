@@ -4,10 +4,8 @@ import re
 import ffmpeg
 import tweepy
 import requests
-from tweepy.errors import TooManyRequests  # for rate limit handling
 
-
-# ----- CONFIG: read keys from environment variables -----
+# ===== LOAD ENVIRONMENT VARIABLES =====
 
 API_KEY = os.getenv("API_KEY")
 API_KEY_SECRET = os.getenv("API_KEY_SECRET")
@@ -15,23 +13,23 @@ ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 ACCESS_TOKEN_SECRET = os.getenv("ACCESS_TOKEN_SECRET")
 BEARER_TOKEN = os.getenv("BEARER_TOKEN")
 
-# Tweepy v2 Client (for reading mentions)
+# ===== TWITTER CLIENTS =====
+
 client = tweepy.Client(
     bearer_token=BEARER_TOKEN,
     consumer_key=API_KEY,
     consumer_secret=API_KEY_SECRET,
     access_token=ACCESS_TOKEN,
-    access_token_secret=ACCESS_TOKEN_SECRET,
+    access_token_secret=ACCESS_TOKEN_SECRET
 )
 
-# Tweepy v1.1 API (for posting tweets with video)
 auth = tweepy.OAuth1UserHandler(API_KEY, API_KEY_SECRET, ACCESS_TOKEN, ACCESS_TOKEN_SECRET)
 api = tweepy.API(auth)
 
 LAST_SEEN_FILE = "last_seen.txt"
 
 
-# ----- HELPER FUNCTIONS -----
+# ===== LAST SEEN TWEET TRACKING =====
 
 def get_last_seen():
     if not os.path.exists(LAST_SEEN_FILE):
@@ -39,23 +37,22 @@ def get_last_seen():
     with open(LAST_SEEN_FILE, "r") as f:
         return f.read().strip()
 
-
 def set_last_seen(tweet_id):
     with open(LAST_SEEN_FILE, "w") as f:
         f.write(str(tweet_id))
 
 
+# ===== COMMAND PARSER =====
+
 def parse_cut_command(text):
-    """
-    Looks for: cut 0:05-0:17
-    Returns ("0:05", "0:17") or (None, None)
-    """
     pattern = r"cut\s+(\d+:\d+)-(\d+:\d+)"
     match = re.search(pattern, text.lower())
     if match:
         return match.group(1), match.group(2)
     return None, None
 
+
+# ===== VIDEO DOWNLOADING =====
 
 def download_video(url):
     video = requests.get(url)
@@ -64,6 +61,8 @@ def download_video(url):
         f.write(video.content)
     return filename
 
+
+# ===== VIDEO TRIMMING =====
 
 def trim_video(input_file, start, end):
     output_file = "output.mp4"
@@ -77,42 +76,44 @@ def trim_video(input_file, start, end):
     return output_file
 
 
-# ----- MAIN BOT LOOP -----
+# ===== MAIN BOT LOOP =====
 
 def run_bot():
     print("MakeItAHighlight bot is now running...")
     last_seen = get_last_seen()
 
-    # Get your own user ID for mentions
+    # Get bot user ID
     me = client.get_me()
     user_id = me.data.id
-    print(f"Bot user id: {user_id}")
+    print(f"Bot user ID: {user_id}")
 
     while True:
         try:
             print("Checking for new mentions...")
-            # Get mentions using Tweepy v2
+
             if last_seen:
                 mentions = client.get_users_mentions(
                     id=user_id,
                     since_id=last_seen,
                     expansions=["attachments.media_keys"],
-                    media_fields=["url"],
+                    media_fields=["url"]
                 )
             else:
                 mentions = client.get_users_mentions(
                     id=user_id,
                     expansions=["attachments.media_keys"],
-                    media_fields=["url"],
+                    media_fields=["url"]
                 )
 
             if mentions.data:
                 print(f"Found {len(mentions.data)} new mention(s).")
+
                 for mention in reversed(mentions.data):
-                    print("Processing:", mention.id)
+                    print(f"Processing tweet {mention.id}")
                     set_last_seen(mention.id)
                     last_seen = str(mention.id)
 
+                    # Check for "cut" command
                     start, end = parse_cut_command(mention.text)
                     if not start:
                         client.create_tweet(
@@ -124,7 +125,7 @@ def run_bot():
                     # Validate media
                     if not mention.attachments or "media_keys" not in mention.attachments:
                         client.create_tweet(
-                            text="I couldn't find a video on that tweet.",
+                            text="I couldn't find a video in that tweet.",
                             in_reply_to_tweet_id=mention.id
                         )
                         continue
@@ -132,7 +133,6 @@ def run_bot():
                     media_key = mention.attachments["media_keys"][0]
                     media_url = None
 
-                    # Find media URL in includes
                     if mentions.includes and "media" in mentions.includes:
                         for media in mentions.includes["media"]:
                             if media.media_key == media_key:
@@ -140,40 +140,41 @@ def run_bot():
 
                     if not media_url:
                         client.create_tweet(
-                            text="I couldn't find a video on that tweet.",
+                            text="I couldn't find the video file.",
                             in_reply_to_tweet_id=mention.id
                         )
                         continue
 
-                    print(f"Downloading video from {media_url}")
+                    # Download and clip
+                    print(f"Downloading video: {media_url}")
                     input_file = download_video(media_url)
-                    print(f"Trimming video {start} to {end}")
+
+                    print(f"Trimming video ({start}-{end})...")
                     output_file = trim_video(input_file, start, end)
 
-                    print("Uploading clipped video...")
+                    # Upload result
+                    print("Uploading result...")
                     api.update_status_with_media(
-                        status=f"Here's your highlight! 🔥 ({start} - {end})",
+                        status=f"Here's your highlight! 🔥 ({start}-{end})",
                         filename=output_file,
-                        in_reply_to_status_id=mention.id,
+                        in_reply_to_status_id=mention.id
                     )
 
             else:
-                print("No new mentions.")
+                print("No new mentions found.")
 
-            # Wait 60 seconds before next check
             time.sleep(60)
 
-        except TooManyRequests:
-            print("Rate limited by Twitter. Cooling down for 15 minutes…")
+        except tweepy.errors.TooManyRequests:
+            print("Rate limit hit. Cooling down for 15 minutes...")
             time.sleep(900)
 
-           except Exception as e:
-        print("Unexpected error:", e)
-        time.sleep(60)
+        except Exception as e:
+            print("Unexpected error:", e)
+            time.sleep(60)
 
 
-# ----- ENTRY POINT -----
+# ===== ENTRY POINT =====
 
 if __name__ == "__main__":
-    print("MakeItAHighlight bot is now running...")
     run_bot()
